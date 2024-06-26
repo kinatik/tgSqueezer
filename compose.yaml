@@ -1,0 +1,10 @@
+services:
+  tgSqueezer:
+    image: kinatik/tg-squeezer-bot:latest
+    hostname: tg-squeezer-bot
+    restart: always
+    container_name: tg-squeezer-bot
+    volumes:
+     - /opt/bot.yaml:/opt/tgSqueezer/config/bot.yaml
+     - ./logs:/srv/logs
+

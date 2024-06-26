@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: tgSqueezer
+  config:
+    import: optional:/opt/tgSqueezer/config/bot.yaml
+
