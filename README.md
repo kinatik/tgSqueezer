@@ -78,6 +78,15 @@ This project is licensed under the MIT License
 
 If you have any questions or feedback, feel free to reach out to me at [kinatik](https://t.me/kinatik).
 
+## Future Functionality
+    - Add support for describing images in the chat.
+    - Save data to a database to prevent data loss.
+    - Add suppport for message answering.
+    - Add support for reading links summaries.
+    - Add support for reactions to messages.
+    - Add better support for multiple chats.
+    - Add support for multiple languages.
+
 ---
 
 With TgSqueezer, keep your conversations efficient and ensure you never miss out on important discussions. Summarization has never been easier!
