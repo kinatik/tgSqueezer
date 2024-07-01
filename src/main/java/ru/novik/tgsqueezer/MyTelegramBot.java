@@ -4,17 +4,20 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.GetFile;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.File;
+import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.novik.tgsqueezer.config.BotConfig;
+import ru.novik.tgsqueezer.service.OpenAiImageService;
 import ru.novik.tgsqueezer.service.OpenAiService;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
 
 @Slf4j
 @Component
@@ -23,14 +26,16 @@ public class MyTelegramBot extends TelegramLongPollingBot {
     private final BotConfig botConfig;
 
     private final OpenAiService openAiService;
+    private final OpenAiImageService openAiImageService;
 
     private final Map<Long, List<String>> messages = new HashMap<>();
     private final Map<Long, Integer> requestCounter = new HashMap<>();
 
     @Autowired
-    public MyTelegramBot(OpenAiService openAiService, BotConfig botConfig) {
+    public MyTelegramBot(OpenAiService openAiService, OpenAiImageService openAiImageService, BotConfig botConfig) {
         super(botConfig.getToken());
         this.openAiService = openAiService;
+        this.openAiImageService = openAiImageService;
         this.botConfig = botConfig;
     }
 
@@ -41,6 +46,28 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
+        if (update.hasMessage() && update.getMessage().hasPhoto()) {
+            if (botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
+                try {
+                    File imageFileFromUpdate = getImageFileFromUpdate(update);
+                    java.io.File downloadedFile = downloadedFile(imageFileFromUpdate);
+                    String base64 = getBase64FromImageFile(downloadedFile);
+                    String describe =  openAiImageService.describe(botConfig.getChatgptApiKey(), base64);
+                    log.info("Image description: {}", describe);
+                    addMessage(update.getMessage().getChatId(), userName(update),
+                            botConfig.getSomebodySentImagePrompt() + " " + describe);
+                } catch (IOException e) {
+                    log.error("Error describing image", e);
+                } catch (TelegramApiException e) {
+                    log.error("Error getting image file from telegram API", e);
+                }
+            }
+            if (update.getMessage().getCaption() != null) {
+                addMessage(update.getMessage().getChatId(), userName(update),
+                        botConfig.getSomebodyCaptionedImagePrompt() + update.getMessage().getCaption());
+            }
+
+        }
         if (update.hasMessage() && update.getMessage().hasText()) {
             Long chatId = update.getMessage().getChatId();
 
@@ -75,8 +102,7 @@ public class MyTelegramBot extends TelegramLongPollingBot {
             }
 
             if (!messageText.startsWith("/squeeze")) {
-                messages.putIfAbsent(chatId, new ArrayList<>());
-                messages.get(chatId).add(userName + ": " + messageText);
+                addMessage(chatId, userName, messageText);
             }
 
             if (messageText.startsWith("/squeeze")) {
@@ -89,6 +115,33 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                 sendMessage(chatId, "Special phrase detected!");
             }
         }
+    }
+
+    private File getImageFileFromUpdate(Update update) throws TelegramApiException {
+        List<PhotoSize> photos = update.getMessage().getPhoto();
+        String fileId = photos.get(Math.min(photos.size() - 1, botConfig.getMaxImageSize() - 1)).getFileId();
+        GetFile getFileMethod = new GetFile();
+        getFileMethod.setFileId(fileId);
+        return execute(getFileMethod);
+    }
+
+    private java.io.File downloadedFile(File file) throws IOException, TelegramApiException {
+        Path tempFile = Files.createTempFile("image", ".jpg");
+        log.info("Temp file created: {}", tempFile.toAbsolutePath());
+        return  downloadFile(file, tempFile.toFile());
+    }
+
+    private String getBase64FromImageFile(java.io.File downloadedFile) throws IOException {
+        byte[] fileContent = Files.readAllBytes(downloadedFile.toPath());
+        if (!downloadedFile.delete()) {
+            log.warn("Temp file not deleted: {}", downloadedFile.getAbsolutePath());
+        }
+        return Base64.getEncoder().encodeToString(fileContent);
+    }
+
+    private void addMessage(Long chatId, String userName, String messageText) {
+        messages.putIfAbsent(chatId, new ArrayList<>());
+        messages.get(chatId).add(userName + ": " + messageText);
     }
 
     private String userName(Update update) {
@@ -113,6 +166,8 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         for (String string : strings) {
             stringBuilder.append(string).append("\n");
         }
+
+
 
         String message;
         try {

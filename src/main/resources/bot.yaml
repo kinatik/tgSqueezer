@@ -49,4 +49,10 @@ bot:
     - 123456789
     - 987654321
   max_requests_per_not_allowed_chat: 10          # Maximum free requests per not allowed chat
-
+  max_image_size: 2                              # Maximum image size. 0 - images are sent to GPT API, 1-4 - image size to send to GPT API, 1 - low quality, 4 - high quality
+  somebody_sent_image_prompt: |                  # A part of the prompt when somebody sent an image
+    [sent an image]
+  somebody_captioned_image_prompt: |             # A part of the prompt when somebody captioned an image
+    [captioned an image]
+  describe_image_prompt: |                       # A part of the prompt when the bot describes an image
+    Describe the image

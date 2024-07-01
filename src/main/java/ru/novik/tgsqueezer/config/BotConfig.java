@@ -35,4 +35,8 @@ public class BotConfig {
     private String errorMessage;
     private Set<Long> allowedChatIds;
     private Integer maxRequestsPerNotAllowedChat;
+    private Integer maxImageSize;
+    private String somebodySentImagePrompt;
+    private String somebodyCaptionedImagePrompt;
+    private String describeImagePrompt;
 }
