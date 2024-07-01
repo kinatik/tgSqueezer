@@ -40,4 +40,6 @@ public class BotConfig {
     private String somebodyCaptionedImagePrompt;
     private String describeImagePrompt;
     private String describeImageImmediatelyPrompt;
+    private Long imageFrequencyPerUserInMins;
+    private Long imageFrequencyPerChatInMins;
 }

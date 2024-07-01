@@ -6,10 +6,7 @@ import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.GetFile;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.objects.File;
-import org.telegram.telegrambots.meta.api.objects.Message;
-import org.telegram.telegrambots.meta.api.objects.PhotoSize;
-import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.*;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.novik.tgsqueezer.config.BotConfig;
 import ru.novik.tgsqueezer.service.OpenAiImageService;
@@ -31,6 +28,8 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     private final Map<Long, List<String>> messages = new HashMap<>();
     private final Map<Long, Integer> requestCounter = new HashMap<>();
+    private final Map<Long, Long> imagePerUserCountdown = new HashMap<>();
+    private final Map<Long, Long> imagePerChatCountdown = new HashMap<>();
 
     @Autowired
     public MyTelegramBot(OpenAiService openAiService, OpenAiImageService openAiImageService, BotConfig botConfig) {
@@ -47,8 +46,12 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
+        boolean imageDescriptionForUserAllowed = isImageDescriptionAllowed(update.getMessage().getFrom());
+        boolean imageDescriptionForChatAllowed = isImageDescriptionAllowed(update.getMessage().getChatId());
+
         if (update.hasMessage() && update.getMessage().hasPhoto()) {
-            if (botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
+            if (imageDescriptionForUserAllowed && imageDescriptionForChatAllowed
+                    && botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
                 try {
                     File imageFileFromUpdate = getImageFileFromUpdate(update.getMessage());
                     java.io.File downloadedFile = downloadedFile(imageFileFromUpdate);
@@ -120,7 +123,7 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                             log.error("Error getting image file from telegram API", e);
                         }
                     }
-                    addMessage(chatId, userName, update.getMessage().getReplyToMessage().getText());
+                    return;
                 }
             }
 
@@ -221,5 +224,29 @@ public class MyTelegramBot extends TelegramLongPollingBot {
             log.error("Error sending message", e);
         }
     }
+
+    private boolean isImageDescriptionAllowed(User from) {
+        Long id = from.getId();
+        imagePerUserCountdown.putIfAbsent(id, System.currentTimeMillis() - botConfig.getImageFrequencyPerUserInMins() * 60 * 1000);
+        if (botConfig.getImageFrequencyPerUserInMins() != null && botConfig.getImageFrequencyPerUserInMins() > 0 &&
+                System.currentTimeMillis() - imagePerUserCountdown.get(id) >=
+                        botConfig.getImageFrequencyPerUserInMins() * 60 * 1000) {
+            imagePerUserCountdown.put(id, System.currentTimeMillis());
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isImageDescriptionAllowed(Long chatId) {
+        imagePerChatCountdown.putIfAbsent(chatId, System.currentTimeMillis() - botConfig.getImageFrequencyPerChatInMins() * 60 * 1000);
+        if (botConfig.getImageFrequencyPerChatInMins() != null && botConfig.getImageFrequencyPerChatInMins() > 0 &&
+                System.currentTimeMillis() - imagePerChatCountdown.get(chatId) >=
+                        botConfig.getImageFrequencyPerChatInMins() * 60 * 1000) {
+            imagePerChatCountdown.put(chatId, System.currentTimeMillis());
+            return true;
+        }
+        return false;
+    }
+
 }
 

@@ -58,3 +58,5 @@ bot:
     Describe the image
   describe_image_immediately_prompt: |           # A part of the prompt when the bot describes an image immediately fot debugging, if empty the feature is disabled
     Bot, describe
+  image_frequency_per_user_in_mins: 5            # Image frequency per user in minutes, not set or 0 is disabled
+  image_frequency_per_chat_in_mins: 1            # Image frequency per chat in minutes, not set or 0 is disabled
