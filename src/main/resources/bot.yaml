@@ -56,3 +56,5 @@ bot:
     [captioned an image]
   describe_image_prompt: |                       # A part of the prompt when the bot describes an image
     Describe the image
+  describe_image_immediately_prompt: |           # A part of the prompt when the bot describes an image immediately fot debugging, if empty the feature is disabled
+    Bot, describe

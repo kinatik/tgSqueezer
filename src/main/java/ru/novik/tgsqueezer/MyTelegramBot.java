@@ -7,6 +7,7 @@ import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.GetFile;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.File;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -49,10 +50,10 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         if (update.hasMessage() && update.getMessage().hasPhoto()) {
             if (botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
                 try {
-                    File imageFileFromUpdate = getImageFileFromUpdate(update);
+                    File imageFileFromUpdate = getImageFileFromUpdate(update.getMessage());
                     java.io.File downloadedFile = downloadedFile(imageFileFromUpdate);
                     String base64 = getBase64FromImageFile(downloadedFile);
-                    String describe =  openAiImageService.describe(botConfig.getChatgptApiKey(), base64);
+                    String describe =  openAiImageService.describe(base64);
                     log.info("Image description: {}", describe);
                     addMessage(update.getMessage().getChatId(), userName(update),
                             botConfig.getSomebodySentImagePrompt() + " " + describe);
@@ -101,6 +102,28 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                 return;
             }
 
+            // describe image immediately command for debug purposes
+            if (update.getMessage().getReplyToMessage() != null) {
+                if (update.getMessage().getReplyToMessage().hasPhoto()
+                        && botConfig.getDescribeImageImmediatelyPrompt() != null
+                        && messageText.equalsIgnoreCase(botConfig.getDescribeImageImmediatelyPrompt())) {
+                    if (botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
+                        try {
+                            File imageFileFromUpdate = getImageFileFromUpdate(update.getMessage().getReplyToMessage());
+                            java.io.File downloadedFile = downloadedFile(imageFileFromUpdate);
+                            String base64 = getBase64FromImageFile(downloadedFile);
+                            String describe =  openAiImageService.describe(base64);
+                            sendMessage(chatId, describe);
+                        } catch (IOException e) {
+                            log.error("Error describing image", e);
+                        } catch (TelegramApiException e) {
+                            log.error("Error getting image file from telegram API", e);
+                        }
+                    }
+                    addMessage(chatId, userName, update.getMessage().getReplyToMessage().getText());
+                }
+            }
+
             if (!messageText.startsWith("/squeeze")) {
                 addMessage(chatId, userName, messageText);
             }
@@ -117,8 +140,8 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private File getImageFileFromUpdate(Update update) throws TelegramApiException {
-        List<PhotoSize> photos = update.getMessage().getPhoto();
+    private File getImageFileFromUpdate(Message message) throws TelegramApiException {
+        List<PhotoSize> photos = message.getPhoto();
         String fileId = photos.get(Math.min(photos.size() - 1, botConfig.getMaxImageSize() - 1)).getFileId();
         GetFile getFileMethod = new GetFile();
         getFileMethod.setFileId(fileId);

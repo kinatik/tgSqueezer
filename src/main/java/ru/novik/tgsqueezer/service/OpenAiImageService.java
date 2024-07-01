@@ -21,7 +21,7 @@ public class OpenAiImageService {
 
     private static final Gson gson = new Gson();
 
-    public String describe(String apiKey, String conversation) throws IOException {
+    public String describe(String conversation) throws IOException {
         GptImageRequest gptRequest = getRequest(conversation);
         String json = gson.toJson(gptRequest);
         log.info("Request to Chat GPT: {}", json);
@@ -31,7 +31,7 @@ public class OpenAiImageService {
                 .url(API_URL)
                 .post(body)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Authorization", "Bearer " + botConfig.getChatgptApiKey())
                 .build();
 
         try (Response response = client.newCall(request).execute()) {

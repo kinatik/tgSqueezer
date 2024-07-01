@@ -39,4 +39,5 @@ public class BotConfig {
     private String somebodySentImagePrompt;
     private String somebodyCaptionedImagePrompt;
     private String describeImagePrompt;
+    private String describeImageImmediatelyPrompt;
 }
