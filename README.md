@@ -16,9 +16,6 @@ TgSqueezer is a Telegram bot designed to provide concise summaries of the latest
 - **/squeeze**
     - Use this command to get a brief summary of the latest messages in the chat. Note that there are limits on the minimum and maximum number of messages.
 
-- **/info**
-    - Provides some information about the bot.
-
 - **/about**
     - Tells you about the bot and how it can help you in the chat.
 
@@ -86,7 +83,3 @@ If you have any questions or feedback, feel free to reach out to me at [kinatik]
     - Add support for reactions to messages.
     - Add better support for multiple chats.
     - Add support for multiple languages.
-
----
-
-With TgSqueezer, keep your conversations efficient and ensure you never miss out on important discussions. Summarization has never been easier!
