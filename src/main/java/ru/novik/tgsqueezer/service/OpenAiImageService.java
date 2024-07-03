@@ -24,7 +24,6 @@ public class OpenAiImageService {
     public String describe(String conversation) throws IOException {
         GptImageRequest gptRequest = getRequest(conversation);
         String json = gson.toJson(gptRequest);
-        log.info("Request to Chat GPT: {}", json);
 
         RequestBody body = RequestBody.create(json, MediaType.get("application/json; charset=utf-8"));
         Request request = new Request.Builder()

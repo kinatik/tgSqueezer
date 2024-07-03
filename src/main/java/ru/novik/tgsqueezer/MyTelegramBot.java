@@ -37,6 +37,7 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         this.openAiService = openAiService;
         this.openAiImageService = openAiImageService;
         this.botConfig = botConfig;
+        log.info("Bot config loaded: {}", botConfig);
     }
 
     @Override
@@ -46,19 +47,25 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
-        boolean imageDescriptionForUserAllowed = isImageDescriptionAllowed(update.getMessage().getFrom());
-        boolean imageDescriptionForChatAllowed = isImageDescriptionAllowed(update.getMessage().getChatId());
+        if(!update.hasMessage() || update.getMessage() == null) {
+            return;
+        }
 
-        if (update.hasMessage() && update.getMessage().hasPhoto()) {
-            if (imageDescriptionForUserAllowed && imageDescriptionForChatAllowed
+        Message message = update.getMessage();
+        String userName = getUserName(update);
+        Long userId = getUserId(update);
+        Long chatId = getChatId(update);
+
+        if (message.hasPhoto()) {
+            if (isImageDescriptionAllowedForUser(userId) && isImageDescriptionAllowedForChat(chatId)
                     && botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
                 try {
-                    File imageFileFromUpdate = getImageFileFromUpdate(update.getMessage());
+                    File imageFileFromUpdate = getImageFileFromUpdate(message);
                     java.io.File downloadedFile = downloadedFile(imageFileFromUpdate);
                     String base64 = getBase64FromImageFile(downloadedFile);
                     String describe =  openAiImageService.describe(base64);
                     log.info("Image description: {}", describe);
-                    addMessage(update.getMessage().getChatId(), userName(update),
+                    addMessage(chatId, userName,
                             botConfig.getSomebodySentImagePrompt() + " " + describe);
                 } catch (IOException e) {
                     log.error("Error describing image", e);
@@ -66,17 +73,14 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                     log.error("Error getting image file from telegram API", e);
                 }
             }
-            if (update.getMessage().getCaption() != null) {
-                addMessage(update.getMessage().getChatId(), userName(update),
-                        botConfig.getSomebodyCaptionedImagePrompt() + update.getMessage().getCaption());
+            if (message.getCaption() != null) {
+                addMessage(chatId, userName,
+                        botConfig.getSomebodyCaptionedImagePrompt() + message.getCaption());
             }
 
         }
-        if (update.hasMessage() && update.getMessage().hasText()) {
-            Long chatId = update.getMessage().getChatId();
-
-            String messageText = update.getMessage().getText();
-            String userName = userName(update);
+        if (message.hasText()) {
+            String messageText = message.getText();
 
             log.info("ChatID: {}, username: {}, message: {}", chatId, userName, messageText);
 
@@ -106,13 +110,14 @@ public class MyTelegramBot extends TelegramLongPollingBot {
             }
 
             // describe image immediately command for debug purposes
-            if (update.getMessage().getReplyToMessage() != null) {
-                if (update.getMessage().getReplyToMessage().hasPhoto()
+            if (message.isReply()) {
+                if (message.getReplyToMessage().hasPhoto()
                         && botConfig.getDescribeImageImmediatelyPrompt() != null
-                        && messageText.equalsIgnoreCase(botConfig.getDescribeImageImmediatelyPrompt())) {
+                        && messageText.replaceAll("\\W", "").toLowerCase()
+                        .startsWith(botConfig.getDescribeImageImmediatelyPrompt().toLowerCase().replaceAll("\\W", ""))) {
                     if (botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
                         try {
-                            File imageFileFromUpdate = getImageFileFromUpdate(update.getMessage().getReplyToMessage());
+                            File imageFileFromUpdate = getImageFileFromUpdate(message.getReplyToMessage());
                             java.io.File downloadedFile = downloadedFile(imageFileFromUpdate);
                             String base64 = getBase64FromImageFile(downloadedFile);
                             String describe =  openAiImageService.describe(base64);
@@ -161,6 +166,8 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         byte[] fileContent = Files.readAllBytes(downloadedFile.toPath());
         if (!downloadedFile.delete()) {
             log.warn("Temp file not deleted: {}", downloadedFile.getAbsolutePath());
+        } else {
+            log.info("Temp file deleted: {}", downloadedFile.getAbsolutePath());
         }
         return Base64.getEncoder().encodeToString(fileContent);
     }
@@ -170,7 +177,7 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         messages.get(chatId).add(userName + ": " + messageText);
     }
 
-    private String userName(Update update) {
+    private String getUserName(Update update) {
         String firstName = update.getMessage().getFrom().getFirstName();
         String lastName = update.getMessage().getFrom().getLastName();
         return firstName + (lastName == null ? "" : " " + lastName);
@@ -225,19 +232,32 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private boolean isImageDescriptionAllowed(User from) {
-        Long id = from.getId();
-        imagePerUserCountdown.putIfAbsent(id, System.currentTimeMillis() - botConfig.getImageFrequencyPerUserInMins() * 60 * 1000);
+    private Long getUserId(Update update) {
+        if (update.getMessage() != null) {
+            return update.getMessage().getFrom().getId();
+        }
+        return 0L;
+    }
+
+    private Long getChatId(Update update) {
+        if (update.getMessage() != null) {
+            return update.getMessage().getChatId();
+        }
+        return 0L;
+    }
+
+    private boolean isImageDescriptionAllowedForUser(Long userId) {
+        imagePerUserCountdown.putIfAbsent(userId, System.currentTimeMillis() - botConfig.getImageFrequencyPerUserInMins() * 60 * 1000);
         if (botConfig.getImageFrequencyPerUserInMins() != null && botConfig.getImageFrequencyPerUserInMins() > 0 &&
-                System.currentTimeMillis() - imagePerUserCountdown.get(id) >=
+                System.currentTimeMillis() - imagePerUserCountdown.get(userId) >=
                         botConfig.getImageFrequencyPerUserInMins() * 60 * 1000) {
-            imagePerUserCountdown.put(id, System.currentTimeMillis());
+            imagePerUserCountdown.put(userId, System.currentTimeMillis());
             return true;
         }
         return false;
     }
 
-    private boolean isImageDescriptionAllowed(Long chatId) {
+    private boolean isImageDescriptionAllowedForChat(Long chatId) {
         imagePerChatCountdown.putIfAbsent(chatId, System.currentTimeMillis() - botConfig.getImageFrequencyPerChatInMins() * 60 * 1000);
         if (botConfig.getImageFrequencyPerChatInMins() != null && botConfig.getImageFrequencyPerChatInMins() > 0 &&
                 System.currentTimeMillis() - imagePerChatCountdown.get(chatId) >=
