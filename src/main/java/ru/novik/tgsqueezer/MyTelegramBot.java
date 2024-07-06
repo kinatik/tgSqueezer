@@ -112,9 +112,7 @@ public class MyTelegramBot extends TelegramLongPollingBot {
             // describe image immediately command for debug purposes
             if (message.isReply()) {
                 if (message.getReplyToMessage().hasPhoto()
-                        && botConfig.getDescribeImageImmediatelyPrompt() != null
-                        && messageText.replaceAll("\\W", "").toLowerCase()
-                        .startsWith(botConfig.getDescribeImageImmediatelyPrompt().toLowerCase().replaceAll("\\W", ""))) {
+                        && isMessageStartWithText(messageText, botConfig.getDescribeImagePrompt())) {
                     if (botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
                         try {
                             File imageFileFromUpdate = getImageFileFromUpdate(message.getReplyToMessage());
@@ -146,6 +144,11 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                 sendMessage(chatId, "Special phrase detected!");
             }
         }
+    }
+
+    private boolean isMessageStartWithText(String message, String text) {
+        return message != null && text != null && message.replaceAll("\\W", "").toLowerCase()
+                .startsWith(text.toLowerCase().replaceAll("\\W", ""));
     }
 
     private File getImageFileFromUpdate(Message message) throws TelegramApiException {
@@ -247,22 +250,24 @@ public class MyTelegramBot extends TelegramLongPollingBot {
     }
 
     private boolean isImageDescriptionAllowedForUser(Long userId) {
-        imagePerUserCountdown.putIfAbsent(userId, System.currentTimeMillis() - botConfig.getImageFrequencyPerUserInMins() * 60 * 1000);
-        if (botConfig.getImageFrequencyPerUserInMins() != null && botConfig.getImageFrequencyPerUserInMins() > 0 &&
-                System.currentTimeMillis() - imagePerUserCountdown.get(userId) >=
-                        botConfig.getImageFrequencyPerUserInMins() * 60 * 1000) {
-            imagePerUserCountdown.put(userId, System.currentTimeMillis());
+        long currentTimeMillis = System.currentTimeMillis();
+        Long lastAllowedTime = imagePerUserCountdown.getOrDefault(userId, currentTimeMillis);
+        long interval = botConfig.getImageFrequencyPerUserInMins() * 60 * 1000;
+
+        if (interval > 0 && currentTimeMillis - lastAllowedTime >= interval) {
+            imagePerUserCountdown.put(userId, currentTimeMillis);
             return true;
         }
         return false;
     }
 
     private boolean isImageDescriptionAllowedForChat(Long chatId) {
-        imagePerChatCountdown.putIfAbsent(chatId, System.currentTimeMillis() - botConfig.getImageFrequencyPerChatInMins() * 60 * 1000);
-        if (botConfig.getImageFrequencyPerChatInMins() != null && botConfig.getImageFrequencyPerChatInMins() > 0 &&
-                System.currentTimeMillis() - imagePerChatCountdown.get(chatId) >=
-                        botConfig.getImageFrequencyPerChatInMins() * 60 * 1000) {
-            imagePerChatCountdown.put(chatId, System.currentTimeMillis());
+        long currentTime = System.currentTimeMillis();
+        long lastAllowedTime = imagePerChatCountdown.getOrDefault(chatId, currentTime);
+        long interval = botConfig.getImageFrequencyPerChatInMins() * 60 * 1000;
+
+        if (interval > 0 && currentTime - lastAllowedTime >= interval) {
+            imagePerChatCountdown.put(chatId, currentTime);
             return true;
         }
         return false;

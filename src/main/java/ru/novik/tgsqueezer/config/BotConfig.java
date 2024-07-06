@@ -41,8 +41,8 @@ public class BotConfig {
     private String somebodyCaptionedImagePrompt;
     private String describeImagePrompt;
     private String describeImageImmediatelyPrompt;
-    private Long imageFrequencyPerUserInMins;
-    private Long imageFrequencyPerChatInMins;
+    private long imageFrequencyPerUserInMins = 0L;
+    private long imageFrequencyPerChatInMins = 0L;
 
     @Override
     public String toString() {
