@@ -6,9 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.springframework.stereotype.Service;
 import ru.novik.tgsqueezer.config.BotConfig;
-import ru.novik.tgsqueezer.model.GptMessage;
-import ru.novik.tgsqueezer.model.GptRequest;
-import ru.novik.tgsqueezer.model.GptResponse;
+import ru.novik.tgsqueezer.model.*;
 
 import java.io.IOException;
 import java.util.List;
@@ -16,25 +14,23 @@ import java.util.List;
 @Service
 @Slf4j
 @AllArgsConstructor
-public class OpenAiService {
+public class OpenAiImageService {
     private static final OkHttpClient client = new OkHttpClient();
     private static final String API_URL = "https://api.openai.com/v1/chat/completions";
     private final BotConfig botConfig;
 
     private static final Gson gson = new Gson();
 
-    public String summarize(String apiKey, String conversation) throws IOException {
-        MediaType JSON = MediaType.get("application/json; charset=utf-8");
-        GptRequest gptRequest = getRequest(conversation);
+    public String describe(String conversation) throws IOException {
+        GptImageRequest gptRequest = getRequest(conversation);
         String json = gson.toJson(gptRequest);
-        log.info("Request to Chat GPT: {}", json);
 
-        RequestBody body = RequestBody.create(json, JSON);
+        RequestBody body = RequestBody.create(json, MediaType.get("application/json; charset=utf-8"));
         Request request = new Request.Builder()
                 .url(API_URL)
                 .post(body)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Authorization", "Bearer " + botConfig.getChatgptApiKey())
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
@@ -49,24 +45,27 @@ public class OpenAiService {
         }
     }
 
-    private GptRequest getRequest(String content) {
-        return GptRequest.builder()
+    private GptImageRequest getRequest(String base64) {
+        return GptImageRequest.builder()
                 .model(botConfig.getChatgptModel())
                 .messages(List.of(
-                        GptMessage.builder()
-                                .role("system")
-                                .content(botConfig.getChatgptPrompt())
-                                .build(),
-                        GptMessage.builder()
+                        GptImageMessage.builder()
                                 .role("user")
-                                .content(content)
+                                .content(List.of(
+                                        GptImageContent.builder()
+                                                .type("text")
+                                                .text(botConfig.getDescribeImagePrompt())
+                                                .build(),
+                                        GptImageContent.builder()
+                                                .type("image_url")
+                                                .imageUrl(GptImageUrl.builder()
+                                                        .url(String.format("data:image/jpeg;base64,{%s}", base64))
+                                                        .build())
+                                                .build()
+                                ))
                                 .build()
                 ))
-                .temperature(botConfig.getChatgptTemperature())
-                .maxTokens(botConfig.getChatgptMaxTokens())
-                .topP(botConfig.getChatgptTopP())
-                .frequencyPenalty(botConfig.getChatgptFrequencyPenalty())
-                .presencePenalty(botConfig.getChatgptPresencePenalty())
+                .maxTokens(300)
                 .build();
     }
 
