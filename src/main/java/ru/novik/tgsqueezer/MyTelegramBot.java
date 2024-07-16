@@ -9,12 +9,14 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.*;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.novik.tgsqueezer.config.BotConfig;
+import ru.novik.tgsqueezer.db.repository.MessageRepository;
 import ru.novik.tgsqueezer.service.OpenAiImageService;
 import ru.novik.tgsqueezer.service.OpenAiService;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Timestamp;
 import java.util.*;
 
 @Slf4j
@@ -25,18 +27,20 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     private final OpenAiService openAiService;
     private final OpenAiImageService openAiImageService;
+    private final MessageRepository messageRepository;
 
-    private final Map<Long, List<String>> messages = new HashMap<>();
+//    private final Map<Long, List<String>> messages = new HashMap<>();
     private final Map<Long, Integer> requestCounter = new HashMap<>();
     private final Map<Long, Long> imagePerUserCountdown = new HashMap<>();
     private final Map<Long, Long> imagePerChatCountdown = new HashMap<>();
 
     @Autowired
-    public MyTelegramBot(OpenAiService openAiService, OpenAiImageService openAiImageService, BotConfig botConfig) {
+    public MyTelegramBot(OpenAiService openAiService, OpenAiImageService openAiImageService, BotConfig botConfig, MessageRepository messageRepository) {
         super(botConfig.getToken());
         this.openAiService = openAiService;
         this.openAiImageService = openAiImageService;
         this.botConfig = botConfig;
+        this.messageRepository = messageRepository;
         log.info("Bot config loaded: {}", botConfig);
     }
 
@@ -65,7 +69,7 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                     String base64 = getBase64FromImageFile(downloadedFile);
                     String describe =  openAiImageService.describe(base64);
                     log.info("Image description: {}", describe);
-                    addMessage(chatId, userName,
+                    addMessage(message,
                             botConfig.getSomebodySentImagePrompt() + " " + describe);
                 } catch (IOException e) {
                     log.error("Error describing image", e);
@@ -74,8 +78,7 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                 }
             }
             if (message.getCaption() != null) {
-                addMessage(chatId, userName,
-                        botConfig.getSomebodyCaptionedImagePrompt() + message.getCaption());
+                addMessage(message, botConfig.getSomebodyCaptionedImagePrompt() + message.getCaption());
             }
 
         }
@@ -131,11 +134,11 @@ public class MyTelegramBot extends TelegramLongPollingBot {
             }
 
             if (!messageText.startsWith("/squeeze")) {
-                addMessage(chatId, userName, messageText);
+                addMessage(message, messageText);
             }
 
-            if (messageText.startsWith("/squeeze")) {
-                sendSummary(chatId);
+            if (messageText.startsWith("/squeeze") || messageText.toLowerCase().startsWith("бот перескажи")) {
+                sendSummary(chatId, extractInt(messageText));
             } else if (messageText.startsWith("/version")) {
                 sendMessage(chatId, botConfig.getVersionMessage());
             } else if (messageText.startsWith("/about")) {
@@ -144,6 +147,18 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                 sendMessage(chatId, "Special phrase detected!");
             }
         }
+    }
+
+    private Integer extractInt(String message) {
+        String[] words = message.split(" ");
+        for (String word : words) {
+            try {
+                return Integer.parseInt(word);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+        }
+        return null;
     }
 
     private boolean isMessageStartWithText(String message, String text) {
@@ -175,9 +190,15 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         return Base64.getEncoder().encodeToString(fileContent);
     }
 
-    private void addMessage(Long chatId, String userName, String messageText) {
-        messages.putIfAbsent(chatId, new ArrayList<>());
-        messages.get(chatId).add(userName + ": " + messageText);
+    private void addMessage(Message message,  String messageText) {
+        ru.novik.tgsqueezer.db.model.Message messageModel = new ru.novik.tgsqueezer.db.model.Message();
+        messageModel.setMessageId(message.getMessageId());
+        messageModel.setChatId(message.getChatId());
+        messageModel.setUserId(message.getFrom().getId());
+        messageModel.setUsername(message.getFrom().getUserName());
+        messageModel.setMessage(messageText);
+        messageModel.setTime(new Timestamp(System.currentTimeMillis()));
+        messageRepository.insertMessage(messageModel);
     }
 
     private String getUserName(Update update) {
@@ -186,8 +207,11 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         return firstName + (lastName == null ? "" : " " + lastName);
     }
 
-    private void sendSummary(long chatId) {
-        List<String> strings = messages.get(chatId);
+    private void sendSummary(long chatId, Integer count) {
+
+
+
+        List<String> strings = new ArrayList<>();
         if (strings == null || strings.isEmpty()) {
             sendMessage(chatId, botConfig.getNoMessageToDisplayMessage());
             return;
