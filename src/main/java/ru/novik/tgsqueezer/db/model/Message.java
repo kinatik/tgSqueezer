@@ -15,6 +15,8 @@ public class Message {
     private String username;
     private Timestamp time;
     private String message;
+    private String caption;
     private String image;
+    private boolean read;
 }
 

@@ -18,6 +18,26 @@ public class MessageRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    public List<Message> getUnreadMessages(long chatId) {
+        return jdbcTemplate.query("SELECT * FROM message WHERE chat_id = ? AND read = 0 ORDER BY time", new MessageRowMapper(), chatId);
+    }
+
+    public void setMessagesRead(long chatId) {
+        jdbcTemplate.update("UPDATE message SET read = 1 WHERE chat_id = ?", chatId);
+    }
+
+    public List<Message> getLastMessages(long chatId, Integer count) {
+        return jdbcTemplate.query("SELECT * FROM message WHERE chat_id = ? ORDER BY time LIMIT ?", new MessageRowMapper(), chatId, count);
+    }
+
+    public void editMessage(Long chatId, Integer messageId, String messageText) {
+        jdbcTemplate.update("UPDATE message SET message = ? WHERE chat_id = ? AND message_id = ?", messageText, chatId, messageId);
+    }
+
+    public void editMessageCaption(Long chatId, Integer messageId, String caption) {
+        jdbcTemplate.update("UPDATE message SET caption = ? WHERE chat_id = ? AND message_id = ?", caption, chatId, messageId);
+    }
+
     private static class MessageRowMapper implements RowMapper<Message> {
         @Override
         public Message mapRow(ResultSet rs, int rowNum) throws SQLException {
@@ -26,36 +46,19 @@ public class MessageRepository {
             message.setMessageId(rs.getInt("message_id"));
             message.setChatId(rs.getLong("chat_id"));
             message.setUserId(rs.getLong("user_id"));
+            message.setUsername(rs.getString("username"));
             message.setTime(rs.getTimestamp("time"));
             message.setMessage(rs.getString("message"));
+            message.setCaption(rs.getString("caption"));
             message.setImage(rs.getString("image"));
+            message.setRead(rs.getBoolean("read"));
             return message;
         }
     }
 
-    public List<Message> findAll() {
-        return jdbcTemplate.query("SELECT * FROM message", new MessageRowMapper());
-    }
-
     public void insertMessage(Message message) {
-        String sql = "INSERT INTO message (id, message_id, chat_id, user_id, username, time, message, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO message (id, message_id, chat_id, user_id, username, time, message, caption, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
         jdbcTemplate.update(sql, getNextMessageId(), message.getMessageId(), message.getChatId(), message.getUserId(), message.getUsername(), message.getTime(), message.getMessage(), message.getImage());
-    }
-
-    public Message findById(long id) {
-        return jdbcTemplate.queryForObject(
-                "SELECT * FROM message WHERE id = ?",
-                new Object[]{id},
-                new MessageRowMapper());
-    }
-
-    public void updateMessage(Message message) {
-        String sql = "UPDATE message SET chat_id = ?, user_id = ?, time = ?, message = ?, image = ? WHERE id = ?";
-        jdbcTemplate.update(sql, message.getChatId(), message.getUserId(), message.getTime(), message.getMessage(), message.getImage(), message.getId());
-    }
-
-    public void deleteMessage(long id) {
-        jdbcTemplate.update("DELETE FROM message WHERE id = ?", id);
     }
 
     public long getNextMessageId() {

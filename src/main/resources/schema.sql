@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS message (
     username VARCHAR(128) NOT NULL,
     time TIMESTAMP NOT NULL,
     message VARCHAR(4096),
-    capture VARCHAR(2048),
-    image TEXT NULL
+    caption VARCHAR(2048),
+    image TEXT NULL,
+    read BOOLEAN NOT NULL DEFAULT FALSE
 );
