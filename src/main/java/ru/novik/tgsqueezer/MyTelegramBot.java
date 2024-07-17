@@ -1,21 +1,29 @@
 package ru.novik.tgsqueezer;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.GetFile;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.objects.*;
+import org.telegram.telegrambots.meta.api.objects.File;
+import org.telegram.telegrambots.meta.api.objects.Message;
+import org.telegram.telegrambots.meta.api.objects.PhotoSize;
+import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.novik.tgsqueezer.config.BotConfig;
+import ru.novik.tgsqueezer.db.repository.MessageRepository;
 import ru.novik.tgsqueezer.service.OpenAiImageService;
 import ru.novik.tgsqueezer.service.OpenAiService;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Timestamp;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Component
@@ -25,18 +33,20 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     private final OpenAiService openAiService;
     private final OpenAiImageService openAiImageService;
+    private final MessageRepository messageRepository;
 
-    private final Map<Long, List<String>> messages = new HashMap<>();
+//    private final Map<Long, List<String>> messages = new HashMap<>();
     private final Map<Long, Integer> requestCounter = new HashMap<>();
     private final Map<Long, Long> imagePerUserCountdown = new HashMap<>();
     private final Map<Long, Long> imagePerChatCountdown = new HashMap<>();
 
     @Autowired
-    public MyTelegramBot(OpenAiService openAiService, OpenAiImageService openAiImageService, BotConfig botConfig) {
+    public MyTelegramBot(OpenAiService openAiService, OpenAiImageService openAiImageService, BotConfig botConfig, MessageRepository messageRepository) {
         super(botConfig.getToken());
         this.openAiService = openAiService;
         this.openAiImageService = openAiImageService;
         this.botConfig = botConfig;
+        this.messageRepository = messageRepository;
         log.info("Bot config loaded: {}", botConfig);
     }
 
@@ -47,12 +57,23 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
-        if(!update.hasMessage() || update.getMessage() == null) {
+        if ((!update.hasMessage() || update.getMessage() == null) && !update.hasEditedMessage()) {
             return;
         }
 
+        if (update.hasEditedMessage()) {
+            Message editedMessage = update.getEditedMessage();
+            if (editedMessage.hasText()) {
+                String messageText = editedMessage.getText();
+                messageRepository.editMessage(editedMessage.getChatId(), editedMessage.getMessageId(), messageText);
+            }
+            if (editedMessage.hasPhoto()) {
+                String caption = editedMessage.getCaption();
+                messageRepository.editMessageCaption(editedMessage.getChatId(), editedMessage.getMessageId(), caption);
+            }
+        }
+
         Message message = update.getMessage();
-        String userName = getUserName(update);
         Long userId = getUserId(update);
         Long chatId = getChatId(update);
 
@@ -65,8 +86,7 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                     String base64 = getBase64FromImageFile(downloadedFile);
                     String describe =  openAiImageService.describe(base64);
                     log.info("Image description: {}", describe);
-                    addMessage(chatId, userName,
-                            botConfig.getSomebodySentImagePrompt() + " " + describe);
+                    addMessage(message, botConfig.getSomebodySentImagePrompt() + " " + describe, null);
                 } catch (IOException e) {
                     log.error("Error describing image", e);
                 } catch (TelegramApiException e) {
@@ -74,15 +94,12 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                 }
             }
             if (message.getCaption() != null) {
-                addMessage(chatId, userName,
-                        botConfig.getSomebodyCaptionedImagePrompt() + message.getCaption());
+                messageRepository.editMessageCaption(chatId, message.getMessageId(), message.getCaption());
             }
 
         }
         if (message.hasText()) {
             String messageText = message.getText();
-
-            log.info("ChatID: {}, username: {}, message: {}", chatId, userName, messageText);
 
             requestCounter.putIfAbsent(chatId, botConfig.getMaxRequestsPerNotAllowedChat());
 
@@ -112,7 +129,7 @@ public class MyTelegramBot extends TelegramLongPollingBot {
             // describe image immediately command for debug purposes
             if (message.isReply()) {
                 if (message.getReplyToMessage().hasPhoto()
-                        && isMessageStartWithText(messageText, botConfig.getDescribeImagePrompt())) {
+                        && messageStartsWithText(messageText, botConfig.getDescribeImagePrompt())) {
                     if (botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
                         try {
                             File imageFileFromUpdate = getImageFileFromUpdate(message.getReplyToMessage());
@@ -130,12 +147,12 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                 }
             }
 
-            if (!messageText.startsWith("/squeeze")) {
-                addMessage(chatId, userName, messageText);
+            if (!messageText.startsWith("/squeeze") && !messageStartsWithText(messageText, botConfig.getCommandToSqueeze())) {
+                addMessage(message, messageText, null);
             }
 
-            if (messageText.startsWith("/squeeze")) {
-                sendSummary(chatId);
+            if (messageText.startsWith("/squeeze") || messageStartsWithText(messageText, botConfig.getCommandToSqueeze())) {
+                sendSummary(chatId, extractInt(messageText));
             } else if (messageText.startsWith("/version")) {
                 sendMessage(chatId, botConfig.getVersionMessage());
             } else if (messageText.startsWith("/about")) {
@@ -146,9 +163,21 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private boolean isMessageStartWithText(String message, String text) {
-        return message != null && text != null && message.replaceAll("\\W", "").toLowerCase()
-                .startsWith(text.toLowerCase().replaceAll("\\W", ""));
+    private Integer extractInt(String message) {
+        String[] words = message.split(" ");
+        for (String word : words) {
+            try {
+                return Integer.parseInt(word);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+        }
+        return null;
+    }
+
+    private boolean messageStartsWithText(String message, String text) {
+        return message != null && text != null && message.toLowerCase().replaceAll("[^a-zA-Zа-яА-Я]", "")
+                .startsWith(text.toLowerCase().replaceAll("[^a-zA-Zа-яА-Я]", ""));
     }
 
     private File getImageFileFromUpdate(Message message) throws TelegramApiException {
@@ -175,20 +204,37 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         return Base64.getEncoder().encodeToString(fileContent);
     }
 
-    private void addMessage(Long chatId, String userName, String messageText) {
-        messages.putIfAbsent(chatId, new ArrayList<>());
-        messages.get(chatId).add(userName + ": " + messageText);
+    private void addMessage(Message message, String messageText, String caption) {
+        ru.novik.tgsqueezer.db.model.Message messageModel = new ru.novik.tgsqueezer.db.model.Message();
+        messageModel.setMessageId(message.getMessageId());
+        messageModel.setChatId(message.getChatId());
+        messageModel.setUserId(message.getFrom().getId());
+        messageModel.setUsername(getUserName(message));
+        messageModel.setTime(new Timestamp(System.currentTimeMillis()));
+        messageModel.setMessage(messageText);
+        messageModel.setCaption(caption);
+        messageRepository.insertMessage(messageModel);
     }
 
-    private String getUserName(Update update) {
-        String firstName = update.getMessage().getFrom().getFirstName();
-        String lastName = update.getMessage().getFrom().getLastName();
+    private String getUserName(Message message) {
+        String firstName = message.getFrom().getFirstName();
+        String lastName = message.getFrom().getLastName();
         return firstName + (lastName == null ? "" : " " + lastName);
     }
 
-    private void sendSummary(long chatId) {
-        List<String> strings = messages.get(chatId);
-        if (strings == null || strings.isEmpty()) {
+    private void sendSummary(long chatId, Integer count) {
+        List<ru.novik.tgsqueezer.db.model.Message> messages;
+        if (count == null || count <= 0) {
+            messages = messageRepository.getUnreadMessages(chatId);
+            messageRepository.setMessagesRead(chatId);
+        } else {
+            count = Math.min(count, botConfig.getMaxMessageStack());
+            messages = messageRepository.getLastMessages(chatId, count);
+        }
+
+        List<String> strings = getStrings(messages);
+
+        if (strings.isEmpty()) {
             sendMessage(chatId, botConfig.getNoMessageToDisplayMessage());
             return;
         }
@@ -202,8 +248,6 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         for (String string : strings) {
             stringBuilder.append(string).append("\n");
         }
-
-
 
         String message;
         try {
@@ -220,7 +264,14 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         }
 
         sendMessage(chatId, message);
-        strings.clear();
+    }
+
+    private static @NotNull List<String> getStrings(List<ru.novik.tgsqueezer.db.model.Message> messages) {
+        return messages.stream()
+                .flatMap(msg -> Stream.of(msg.getMessage(), msg.getCaption())
+                        .filter(Objects::nonNull)
+                        .map(content -> String.format("%s: %s", msg.getUsername(), content)))
+                .collect(Collectors.toList());
     }
 
     private void sendMessage(long chatId, String text) {

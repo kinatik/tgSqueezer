@@ -60,3 +60,4 @@ bot:
     Bot, describe
   image_frequency_per_user_in_mins: 5            # Image frequency per user in minutes, not set or 0 is disabled
   image_frequency_per_chat_in_mins: 1            # Image frequency per chat in minutes, not set or 0 is disabled
+  command_to_squeeze: Bot, squeeze               # Command to squeeze the chat

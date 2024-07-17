@@ -3,4 +3,13 @@ spring:
     name: tgSqueezer
   config:
     import: optional:/opt/tgSqueezer/config/bot.yaml
-
+  datasource:
+#    url: jdbc:sqlite:/srv/identifier.sqlite
+    url: jdbc:sqlite:identifier.sqlite
+    driver-class-name: org.sqlite.JDBC
+    jpa:
+      hibernate:
+        ddl-auto: none
+  sql:
+    init:
+      schema-locations: classpath:schema.sql

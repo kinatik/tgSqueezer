@@ -6,5 +6,6 @@ services:
     container_name: tg-squeezer-bot
     volumes:
      - /opt/bot.yaml:/opt/tgSqueezer/config/bot.yaml
+     - /opt/identifier.sqlite:/srv/identifier.sqlite
      - ./logs:/srv/logs
 

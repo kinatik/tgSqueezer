@@ -43,6 +43,7 @@ public class BotConfig {
     private String describeImageImmediatelyPrompt;
     private long imageFrequencyPerUserInMins = 0L;
     private long imageFrequencyPerChatInMins = 0L;
+    private String commandToSqueeze;
 
     @Override
     public String toString() {
