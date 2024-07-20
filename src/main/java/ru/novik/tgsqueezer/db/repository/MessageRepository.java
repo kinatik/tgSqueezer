@@ -1,5 +1,7 @@
 package ru.novik.tgsqueezer.db.repository;
 
+import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -7,16 +9,15 @@ import ru.novik.tgsqueezer.db.model.Message;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Comparator;
 import java.util.List;
 
 @Repository
+@AllArgsConstructor
+@Slf4j
 public class MessageRepository {
 
     private final JdbcTemplate jdbcTemplate;
-
-    public MessageRepository(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
 
     public List<Message> getUnreadMessages(long chatId) {
         return jdbcTemplate.query("SELECT * FROM message WHERE chat_id = ? AND read = 0 ORDER BY time", new MessageRowMapper(), chatId);
@@ -27,7 +28,16 @@ public class MessageRepository {
     }
 
     public List<Message> getLastMessages(long chatId, Integer count) {
-        return jdbcTemplate.query("SELECT * FROM message WHERE chat_id = ? ORDER BY time LIMIT ?", new MessageRowMapper(), chatId, count);
+        List<Message> messages = null;
+        try {
+            messages = jdbcTemplate.query("SELECT * FROM message WHERE chat_id = ? ORDER BY time DESC LIMIT ?", new MessageRowMapper(), chatId, count);
+        } catch (Exception e) {
+            log.warn("Error while getting last messages", e);
+        }
+        if (messages == null) {
+            return List.of();
+        }
+        return messages.stream().sorted(Comparator.comparing(Message::getTime)).toList();
     }
 
     public void editMessage(Long chatId, Integer messageId, String messageText) {
