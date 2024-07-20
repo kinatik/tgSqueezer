@@ -13,6 +13,8 @@ import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.novik.tgsqueezer.config.BotConfig;
+import ru.novik.tgsqueezer.db.DbService;
+import ru.novik.tgsqueezer.db.repository.ChatSettingsRepository;
 import ru.novik.tgsqueezer.db.repository.MessageRepository;
 import ru.novik.tgsqueezer.service.OpenAiImageService;
 import ru.novik.tgsqueezer.service.OpenAiService;
@@ -31,23 +33,26 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
     private final BotConfig botConfig;
 
+    private final ChatSettingsRepository settings;
     private final OpenAiService openAiService;
     private final OpenAiImageService openAiImageService;
     private final MessageRepository messageRepository;
+    private final DbService dbService;
 
-//    private final Map<Long, List<String>> messages = new HashMap<>();
     private final Map<Long, Integer> requestCounter = new HashMap<>();
     private final Map<Long, Long> imagePerUserCountdown = new HashMap<>();
     private final Map<Long, Long> imagePerChatCountdown = new HashMap<>();
 
     @Autowired
-    public MyTelegramBot(OpenAiService openAiService, OpenAiImageService openAiImageService, BotConfig botConfig, MessageRepository messageRepository) {
+    public MyTelegramBot(OpenAiService openAiService, OpenAiImageService openAiImageService, BotConfig botConfig,
+                         MessageRepository messageRepository, ChatSettingsRepository settings, DbService dbService) {
         super(botConfig.getToken());
         this.openAiService = openAiService;
         this.openAiImageService = openAiImageService;
         this.botConfig = botConfig;
         this.messageRepository = messageRepository;
-        log.info("Bot config loaded: {}", botConfig);
+        this.settings = settings;
+        this.dbService = dbService;
     }
 
     @Override
@@ -78,15 +83,14 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         Long chatId = getChatId(update);
 
         if (message.hasPhoto()) {
-            if (isImageDescriptionAllowedForUser(userId) && isImageDescriptionAllowedForChat(chatId)
-                    && botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
+            if (isImageDescriptionAllowedForUser(userId, chatId) && isImageDescriptionAllowedForChat(chatId)
+                    && settings.getMaxImageSize(chatId) > 0) {
                 try {
-                    File imageFileFromUpdate = getImageFileFromUpdate(message);
+                    File imageFileFromUpdate = getImageFileFromUpdate(message, chatId);
                     java.io.File downloadedFile = downloadedFile(imageFileFromUpdate);
                     String base64 = getBase64FromImageFile(downloadedFile);
-                    String describe =  openAiImageService.describe(base64);
-                    log.info("Image description: {}", describe);
-                    addMessage(message, botConfig.getSomebodySentImagePrompt() + " " + describe, null);
+                    String describe =  openAiImageService.describe(base64, chatId);
+                    addMessage(message, settings.getSomebodySentImagePrompt(chatId) + " " + describe, null);
                 } catch (IOException e) {
                     log.error("Error describing image", e);
                 } catch (TelegramApiException e) {
@@ -101,26 +105,30 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         if (message.hasText()) {
             String messageText = message.getText();
 
-            requestCounter.putIfAbsent(chatId, botConfig.getMaxRequestsPerNotAllowedChat());
+            requestCounter.putIfAbsent(chatId, settings.getMaxRequestsPerNotAllowedChat(chatId));
+
+            executeAdminScenarios(userId, chatId, messageText);
 
             if (chatId > 0) {
-                sendMessage(chatId, botConfig.getInBotStartMessage());
+                sendMessage(chatId, settings.getInBotStartMessage(chatId));
                 return;
             }
 
             if (messageText.startsWith("/start")) {
-                if (botConfig.getAllowedChatIds().contains(chatId)) {
-                    sendMessage(chatId, String.format(botConfig.getInChatStartAllowedMessage(),
+                dbService.start(chatId);
+
+                if (settings.getAllowedChatIds(chatId).contains(chatId)) {
+                    sendMessage(chatId, String.format(settings.getInChatStartAllowedMessage(chatId),
                             chatId,
-                            botConfig.getMinMessageStack(),
-                            botConfig.getMaxMessageStack()
+                            settings.getMinMessageStack(chatId),
+                            settings.getMaxMessageStack(chatId)
                     ));
                 } else {
-                    sendMessage(chatId, String.format(botConfig.getInChatStartNotAllowedMessage(),
+                    sendMessage(chatId, String.format(settings.getInChatStartNotAllowedMessage(chatId),
                             chatId,
                             requestCounter.get(chatId),
-                            botConfig.getMinMessageStack(),
-                            botConfig.getMaxMessageStack()
+                            settings.getMinMessageStack(chatId),
+                            settings.getMaxMessageStack(chatId)
                     ));
                 }
                 return;
@@ -129,13 +137,13 @@ public class MyTelegramBot extends TelegramLongPollingBot {
             // describe image immediately command for debug purposes
             if (message.isReply()) {
                 if (message.getReplyToMessage().hasPhoto()
-                        && messageStartsWithText(messageText, botConfig.getDescribeImagePrompt())) {
-                    if (botConfig.getMaxImageSize() != null && botConfig.getMaxImageSize() > 0) {
+                        && messageStartsWithText(messageText, settings.getDescribeImageImmediatelyPrompt(chatId))) {
+                    if (settings.getMaxImageSize(chatId) > 0) {
                         try {
-                            File imageFileFromUpdate = getImageFileFromUpdate(message.getReplyToMessage());
+                            File imageFileFromUpdate = getImageFileFromUpdate(message.getReplyToMessage(), chatId);
                             java.io.File downloadedFile = downloadedFile(imageFileFromUpdate);
                             String base64 = getBase64FromImageFile(downloadedFile);
-                            String describe =  openAiImageService.describe(base64);
+                            String describe =  openAiImageService.describe(base64, chatId);
                             sendMessage(chatId, describe);
                         } catch (IOException e) {
                             log.error("Error describing image", e);
@@ -147,18 +155,62 @@ public class MyTelegramBot extends TelegramLongPollingBot {
                 }
             }
 
-            if (!messageText.startsWith("/squeeze") && !messageStartsWithText(messageText, botConfig.getCommandToSqueeze())) {
+            if (!messageText.startsWith("/squeeze") && !messageStartsWithText(messageText, settings.getCommandToSqueeze(chatId))) {
                 addMessage(message, messageText, null);
             }
 
-            if (messageText.startsWith("/squeeze") || messageStartsWithText(messageText, botConfig.getCommandToSqueeze())) {
+            if (messageText.startsWith("/squeeze") || messageStartsWithText(messageText, settings.getCommandToSqueeze(chatId))) {
                 sendSummary(chatId, extractInt(messageText));
             } else if (messageText.startsWith("/version")) {
-                sendMessage(chatId, botConfig.getVersionMessage());
+                sendMessage(chatId, settings.getVersionMessage(chatId));
             } else if (messageText.startsWith("/about")) {
-                sendMessage(chatId, botConfig.getAboutMessage());
-            } else if (messageText.toLowerCase().contains("special phrase")) {
-                sendMessage(chatId, "Special phrase detected!");
+                sendMessage(chatId, settings.getAboutMessage(chatId));
+            }
+        }
+    }
+
+    private static final String GET_DEFAULT_SETTINGS = "get default settings";
+    private static final String GET_DEFAULT_SETTING = "get default setting";
+    private static final String SET_DEFAULT_SETTING = "set default setting";
+    private static final String GET_CHAT_SETTINGS = "get chat settings";
+    private static final String GET_CHAT_SETTING = "get chat setting";
+    private static final String SET_CHAT_SETTING = "set chat setting";
+
+    private void executeAdminScenarios(Long userId, Long chatId, String messageText) {
+        if (botConfig.getSuperUserId().equals(userId) && chatId > 0) {
+            if (messageText.startsWith("info")) {
+                sendMessage(chatId, String.format("""
+                        %s - get all default settings names
+                        %s <name> - get default setting value
+                        %s <name> <value> - set default setting value
+                        %s <chat_id> - get all chat settings names for chat_id
+                        %s <chat_id> <name> - get chat setting value for chat_id
+                        %s <chat_id> <name> <value> - set chat setting value for chat_id
+                        """,
+                        GET_DEFAULT_SETTINGS, GET_DEFAULT_SETTING, SET_DEFAULT_SETTING,
+                        GET_CHAT_SETTINGS, GET_CHAT_SETTING, SET_CHAT_SETTING));
+            } else if (messageText.startsWith(GET_DEFAULT_SETTINGS)) {
+                sendMessage(chatId, dbService.getDefaultSettings());
+
+            } else if (messageText.startsWith(GET_DEFAULT_SETTING)) {
+                sendMessage(chatId, dbService.getDefaultSetting(messageText.replace(GET_DEFAULT_SETTING, "").trim()));
+
+            } else if (messageText.startsWith(SET_DEFAULT_SETTING)) {
+                String[] split = messageText.replace(SET_DEFAULT_SETTING, "").trim().split(" ", 2);
+                sendMessage(chatId, dbService.setDefaultSetting(split[0], split[1]));
+
+            } else if (messageText.startsWith(GET_CHAT_SETTINGS)) {
+                String chatIdString = messageText.replace(GET_CHAT_SETTINGS, "").trim();
+                sendMessage(chatId, dbService.getChatSettings(chatIdString));
+
+            } else if (messageText.startsWith(GET_CHAT_SETTING)) {
+                String[] split = messageText.replace(GET_CHAT_SETTING, "").trim().split(" ", 2);
+                sendMessage(chatId, dbService.getChatSetting(split[0], split[1]));
+
+            } else if (messageText.startsWith(SET_CHAT_SETTING)) {
+                String[] split = messageText.replace(SET_CHAT_SETTING, "").trim().split(" ", 3);
+                sendMessage(chatId, dbService.setChatSetting(split[0], split[1], split[2]));
+
             }
         }
     }
@@ -176,13 +228,12 @@ public class MyTelegramBot extends TelegramLongPollingBot {
     }
 
     private boolean messageStartsWithText(String message, String text) {
-        return message != null && text != null && message.toLowerCase().replaceAll("[^a-zA-Zа-яА-Я]", "")
-                .startsWith(text.toLowerCase().replaceAll("[^a-zA-Zа-яА-Я]", ""));
+        return message.replaceAll("[^a-zA-Zа-яА-ЯёЁ]", "").toLowerCase().startsWith(text.replaceAll("[^a-zA-Zа-яА-ЯёЁ]", "").toLowerCase());
     }
 
-    private File getImageFileFromUpdate(Message message) throws TelegramApiException {
+    private File getImageFileFromUpdate(Message message, Long chatId) throws TelegramApiException {
         List<PhotoSize> photos = message.getPhoto();
-        String fileId = photos.get(Math.min(photos.size() - 1, botConfig.getMaxImageSize() - 1)).getFileId();
+        String fileId = photos.get(Math.min(photos.size() - 1, settings.getMaxImageSize(chatId) - 1)).getFileId();
         GetFile getFileMethod = new GetFile();
         getFileMethod.setFileId(fileId);
         return execute(getFileMethod);
@@ -228,19 +279,19 @@ public class MyTelegramBot extends TelegramLongPollingBot {
             messages = messageRepository.getUnreadMessages(chatId);
             messageRepository.setMessagesRead(chatId);
         } else {
-            count = Math.min(count, botConfig.getMaxMessageStack());
+            count = Math.min(count, settings.getMaxMessageStack(chatId));
             messages = messageRepository.getLastMessages(chatId, count);
         }
 
         List<String> strings = getStrings(messages);
 
         if (strings.isEmpty()) {
-            sendMessage(chatId, botConfig.getNoMessageToDisplayMessage());
+            sendMessage(chatId, settings.getNoMessageToDisplayMessage(chatId));
             return;
         }
 
-        if (strings.size() <= botConfig.getMinMessageStack()) {
-            sendMessage(chatId, botConfig.getMinMessageStackNotReachedMessage());
+        if (strings.size() <= settings.getMinMessageStack(chatId)) {
+            sendMessage(chatId, settings.getMinMessageStackNotReachedMessage(chatId));
             return;
         }
 
@@ -251,16 +302,16 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
         String message;
         try {
-            if (botConfig.getAllowedChatIds().contains(chatId) || requestCounter.get(chatId) > 0) {
-                message = openAiService.summarize(botConfig.getChatgptApiKey(), stringBuilder.toString());
+            if (settings.getAllowedChatIds(chatId).contains(chatId) || requestCounter.get(chatId) > 0) {
+                message = openAiService.summarize(settings.getChatgptApiKey(chatId), stringBuilder.toString(), chatId);
                 requestCounter.put(chatId, requestCounter.get(chatId) - 1);
-            } else if (botConfig.getAllowedChatIds().contains(chatId) || requestCounter.get(chatId) <= 0) {
-                message = String.format(botConfig.getNotAllowedMessage(), chatId);
+            } else if (settings.getAllowedChatIds(chatId).contains(chatId) || requestCounter.get(chatId) <= 0) {
+                message = String.format(settings.getNotAllowedMessage(chatId), chatId);
             } else {
-                message = openAiService.summarize(botConfig.getChatgptApiKey(), stringBuilder.toString());
+                message = openAiService.summarize(settings.getChatgptApiKey(chatId), stringBuilder.toString(), chatId);
             }
         } catch (IOException e) {
-            message = String.format(botConfig.getErrorMessage(), e.getMessage());
+            message = String.format(settings.getErrorMessage(chatId), e.getMessage());
         }
 
         sendMessage(chatId, message);
@@ -300,10 +351,10 @@ public class MyTelegramBot extends TelegramLongPollingBot {
         return 0L;
     }
 
-    private boolean isImageDescriptionAllowedForUser(Long userId) {
+    private boolean isImageDescriptionAllowedForUser(Long userId, Long chatId) {
         long currentTimeMillis = System.currentTimeMillis();
-        Long lastAllowedTime = imagePerUserCountdown.getOrDefault(userId, currentTimeMillis);
-        long interval = botConfig.getImageFrequencyPerUserInMins() * 60 * 1000;
+        long interval = settings.getImageFrequencyPerUserInMins(chatId) * 60 * 1000;
+        Long lastAllowedTime = imagePerUserCountdown.getOrDefault(userId, currentTimeMillis - interval);
 
         if (interval > 0 && currentTimeMillis - lastAllowedTime >= interval) {
             imagePerUserCountdown.put(userId, currentTimeMillis);
@@ -313,12 +364,12 @@ public class MyTelegramBot extends TelegramLongPollingBot {
     }
 
     private boolean isImageDescriptionAllowedForChat(Long chatId) {
-        long currentTime = System.currentTimeMillis();
-        long lastAllowedTime = imagePerChatCountdown.getOrDefault(chatId, currentTime);
-        long interval = botConfig.getImageFrequencyPerChatInMins() * 60 * 1000;
+        long currentTimeMillis = System.currentTimeMillis();
+        long interval = settings.getImageFrequencyPerChatInMins(chatId) * 60 * 1000;
+        long lastAllowedTime = imagePerChatCountdown.getOrDefault(chatId, currentTimeMillis - interval);
 
-        if (interval > 0 && currentTime - lastAllowedTime >= interval) {
-            imagePerChatCountdown.put(chatId, currentTime);
+        if (interval > 0 && currentTimeMillis - lastAllowedTime >= interval) {
+            imagePerChatCountdown.put(chatId, currentTimeMillis);
             return true;
         }
         return false;
