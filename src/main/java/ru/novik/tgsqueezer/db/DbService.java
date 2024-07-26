@@ -42,49 +42,113 @@ public class DbService {
     }
 
     public String getDefaultSettings() {
-        List<DefaultSettings> all = defaultSettingsRepository.getAll();
-        return all.stream()
-                .map(DefaultSettings::toString)
-                .sorted()
-                .reduce((s1, s2) -> s1 + "\n" + s2)
-                .orElse("No default settings");
-    }
+        List<DefaultSettings> all = defaultSettingsRepository.getAllSorted();
 
-    public String getDefaultSetting(String defaultSettingName) {
-        String value = defaultSettingsRepository.getValue(defaultSettingName);
-        return value == null ? "No default setting with name: " + defaultSettingName : value;
-    }
-
-    public String setDefaultSetting(String defaultSettingName, String defaultSettingValue) {
-        DefaultSettings defaultSettings = defaultSettingsRepository.getByName(defaultSettingName);
-        if (defaultSettings == null) {
-            return "No default setting with name: " + defaultSettingName;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < all.size(); i++) {
+            sb.append(String.format("%d. ", i + 1)).append(all.get(i)).append("\n");
         }
+
+        return sb.toString();
+    }
+
+    public String getDefaultSetting(String defaultSettingNum) {
+        List<DefaultSettings> all = defaultSettingsRepository.getAllSorted();
+        if (Integer.parseInt(defaultSettingNum) < 1 || Integer.parseInt(defaultSettingNum) > all.size()) {
+            return "No default setting with number: " + defaultSettingNum;
+        }
+        DefaultSettings defaultSettings = all.get(Integer.parseInt(defaultSettingNum) - 1);
+
+        return defaultSettings.getName() + ": " + defaultSettings.getValue();
+    }
+
+    public String setDefaultSetting(String defaultSettingNum, String defaultSettingValue) {
+        List<DefaultSettings> all = defaultSettingsRepository.getAllSorted();
+        if (Integer.parseInt(defaultSettingNum) < 1 || Integer.parseInt(defaultSettingNum) > all.size()) {
+            return "No default setting with number: " + defaultSettingNum;
+        }
+        DefaultSettings defaultSettings = all.get(Integer.parseInt(defaultSettingNum) - 1);
         defaultSettings.setValue(defaultSettingValue);
         defaultSettingsRepository.save(defaultSettings);
-        return "Default setting with name: " + defaultSettingName + " set to value: " + defaultSettingValue;
+        return "Default setting with name: " + defaultSettings.getName() + " set to value: " + defaultSettingValue;
     }
 
-    public String getChatSettings(String chatIdString) {
-        return chatSettingsRepository.getAllByChatId(Long.parseLong(chatIdString)).stream()
-                .map(ChatSettings::toString)
-                .sorted()
-                .reduce((s1, s2) -> s1 + "\n" + s2)
-                .orElse("No chat settings for chatId: " + chatIdString);
-    }
-
-    public String getChatSetting(String chatIdString, String chatSettingName) {
-        String value = chatSettingsRepository.getValue(chatSettingName, Long.parseLong(chatIdString));
-        return value == null ? "No chat setting with name: " + chatSettingName + " for chatId: " + chatIdString : value;
-    }
-
-    public String setChatSetting(String chatId, String name, String value) {
-        ChatSettings chatSettings = chatSettingsRepository.getByName(name, Long.parseLong(chatId));
-        if (chatSettings == null) {
-            return "No chat setting with name: " + name + " for chatId: " + chatId;
+    public String getChatSettings(String chatNumberString) {
+        if (chatNumberString == null || chatNumberString.isEmpty()) {
+            return "No chat number provided";
         }
+        int chatNumber = Integer.parseInt(chatNumberString);
+        List<Long> chatIds = chatSettingsRepository.getAllChatIds();
+        if (chatNumber < 0 || chatNumber > chatIds.size()) {
+            return "No chat with number: " + chatNumberString;
+        }
+        Long chatId = chatIds.get(chatNumber - 1);
+
+        List<ChatSettings> all = chatSettingsRepository.getAllByChatId(chatId);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < all.size(); i++) {
+            sb.append(String.format("%d. ", i + 1)).append(all.get(i)).append("\n");
+        }
+        return sb.toString();
+    }
+
+    public String getChatSetting(String chatNumberString, String chatSettingNum) {
+        if (chatNumberString == null || chatNumberString.isEmpty()) {
+            return "No chat number provided";
+        }
+        if (chatSettingNum == null || chatSettingNum.isEmpty()) {
+            return "No chat setting number provided";
+        }
+
+        int chatNumber = Integer.parseInt(chatNumberString);
+        List<Long> chatIds = chatSettingsRepository.getAllChatIds();
+        if (chatNumber < 0 || chatNumber > chatIds.size()) {
+            return "No chat with number: " + chatNumberString;
+        }
+        Long chatId = chatIds.get(chatNumber - 1);
+
+        int chatSettingNumber = Integer.parseInt(chatSettingNum);
+        List<ChatSettings> all = chatSettingsRepository.getAllByChatId(chatId);
+        if (chatSettingNumber < 0 || chatSettingNumber > all.size()) {
+            return "No chat setting with number: " + chatSettingNum;
+        }
+        ChatSettings chatSettings = all.get(chatSettingNumber - 1);
+
+        return chatSettings.getDefaultSettings().getName() + ": " + chatSettings.getValue();
+    }
+
+    public String setChatSetting(String chatNumString, String settingNum, String value) {
+        if (chatNumString == null || chatNumString.isEmpty()) {
+            return "No chat number provided";
+        }
+        if (settingNum == null || settingNum.isEmpty()) {
+            return "No chat setting number provided";
+        }
+        int chatNumber = Integer.parseInt(chatNumString);
+        List<Long> chatIds = chatSettingsRepository.getAllChatIds();
+        if (chatNumber < 0 || chatNumber > chatIds.size()) {
+            return "No chat with number: " + chatNumString;
+        }
+        Long chatId = chatIds.get(chatNumber - 1);
+
+        int settingNumber = Integer.parseInt(settingNum);
+        List<ChatSettings> all = chatSettingsRepository.getAllByChatId(chatId);
+        if (settingNumber < 0 || settingNumber > all.size()) {
+            return "No chat setting with number: " + settingNum;
+        }
+        ChatSettings chatSettings = all.get(settingNumber - 1);
         chatSettings.setValue(value);
+
         chatSettingsRepository.save(chatSettings);
-        return "Chat setting with name: " + name + " for chatId: " + chatId + " set to value: " + value;
+        return "Chat setting with name: " + chatSettings.getDefaultSettings().getName() + " for chatId: " + chatId + " set to value: " + value;
+    }
+
+    public String getChatIds() {
+        List<Long> all = chatSettingsRepository.getAllChatIds();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < all.size(); i++) {
+            sb.append(String.format("%d. ", i + 1)).append(all.get(i)).append("\n");
+        }
+        return sb.toString();
     }
 }

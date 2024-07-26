@@ -211,7 +211,8 @@ public class ChatSettingsRepository {
                            d.value    AS "d_value"
                     FROM chat_settings ch
                              LEFT JOIN default_settings d ON ch.default_settings_id = d.id
-                    WHERE chat_id = ?;
+                    WHERE chat_id = ?
+                    ORDER BY d.name;
                     """;
             return jdbcTemplate.query(query, new Object[]{chatId}, new int[]{Types.BIGINT}, new ChatSettingsRowMapper());
         } catch (EmptyResultDataAccessException e) {
@@ -256,6 +257,15 @@ public class ChatSettingsRepository {
                 .filter(chatSettings -> chatSettings.getDefaultSettings().getName().equals(name))
                 .findFirst()
                 .orElse(null);
+    }
+
+    public List<Long> getAllChatIds() {
+        try {
+            return jdbcTemplate.query("SELECT DISTINCT chat_id FROM chat_settings ORDER BY chat_id", (rs, rowNum) -> rs.getLong("chat_id"));
+        } catch (EmptyResultDataAccessException e) {
+            log.warn("Calling getAllChatIds got empty result");
+            return List.of();
+        }
     }
 
     private static class ChatSettingsRowMapper implements RowMapper<ChatSettings> {
