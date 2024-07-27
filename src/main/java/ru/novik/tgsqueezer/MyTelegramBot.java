@@ -107,7 +107,11 @@ public class MyTelegramBot extends TelegramLongPollingBot {
 
             requestCounter.putIfAbsent(chatId, settings.getMaxRequestsPerNotAllowedChat(chatId));
 
-            executeAdminScenarios(userId, chatId, messageText);
+            String adminScenarios = executeAdminScenarios(userId, chatId, messageText);
+            if (adminScenarios != null) {
+                sendMessage(chatId, adminScenarios, false);
+                return;
+            }
 
             if (chatId > 0) {
                 sendMessage(chatId, settings.getInBotStartMessage(chatId));
@@ -172,47 +176,55 @@ public class MyTelegramBot extends TelegramLongPollingBot {
     private static final String GET_DEFAULT_SETTINGS = "get default settings";
     private static final String GET_DEFAULT_SETTING = "get default setting";
     private static final String SET_DEFAULT_SETTING = "set default setting";
+    private static final String GET_CHAT_IDS = "get chat ids";
     private static final String GET_CHAT_SETTINGS = "get chat settings";
     private static final String GET_CHAT_SETTING = "get chat setting";
     private static final String SET_CHAT_SETTING = "set chat setting";
 
-    private void executeAdminScenarios(Long userId, Long chatId, String messageText) {
+    private String executeAdminScenarios(Long userId, Long chatId, String messageText) {
         if (botConfig.getSuperUserId().equals(userId) && chatId > 0) {
-            if (messageText.startsWith("info")) {
-                sendMessage(chatId, String.format("""
-                        %s - get all default settings names
-                        %s <name> - get default setting value
-                        %s <name> <value> - set default setting value
-                        %s <chat_id> - get all chat settings names for chat_id
-                        %s <chat_id> <name> - get chat setting value for chat_id
-                        %s <chat_id> <name> <value> - set chat setting value for chat_id
-                        """,
-                        GET_DEFAULT_SETTINGS, GET_DEFAULT_SETTING, SET_DEFAULT_SETTING,
-                        GET_CHAT_SETTINGS, GET_CHAT_SETTING, SET_CHAT_SETTING));
-            } else if (messageText.startsWith(GET_DEFAULT_SETTINGS)) {
-                sendMessage(chatId, dbService.getDefaultSettings());
+            String lowerCaseMessage = messageText.trim().toLowerCase();
+            if (lowerCaseMessage.startsWith("info")) {
+                return String.format("""
+                    %s - get all default settings names
+                    %s <setting number> - get default setting value
+                    %s <setting number> <value> - set default setting value
+                    %s - get all chat ids
+                    %s <chat number> - get all chat settings names for chat
+                    %s <chat number> <setting number> - get chat setting value for chat
+                    %s <chat number> <setting number> <value> - set chat setting value for chat
+                    """,
+                    GET_DEFAULT_SETTINGS, GET_DEFAULT_SETTING, SET_DEFAULT_SETTING,
+                    GET_CHAT_IDS, GET_CHAT_SETTINGS, GET_CHAT_SETTING, SET_CHAT_SETTING).trim();
 
-            } else if (messageText.startsWith(GET_DEFAULT_SETTING)) {
-                sendMessage(chatId, dbService.getDefaultSetting(messageText.replace(GET_DEFAULT_SETTING, "").trim()));
+            } else if (lowerCaseMessage.startsWith(GET_DEFAULT_SETTINGS)) {
+                return dbService.getDefaultSettings();
 
-            } else if (messageText.startsWith(SET_DEFAULT_SETTING)) {
-                String[] split = messageText.replace(SET_DEFAULT_SETTING, "").trim().split(" ", 2);
-                sendMessage(chatId, dbService.setDefaultSetting(split[0], split[1]));
+            } else if (lowerCaseMessage.startsWith(GET_DEFAULT_SETTING)) {
+                return dbService.getDefaultSetting(messageText.substring(GET_DEFAULT_SETTING.length()).trim());
 
-            } else if (messageText.startsWith(GET_CHAT_SETTINGS)) {
-                String chatIdString = messageText.replace(GET_CHAT_SETTINGS, "").trim();
-                sendMessage(chatId, dbService.getChatSettings(chatIdString));
+            } else if (lowerCaseMessage.startsWith(SET_DEFAULT_SETTING)) {
+                String[] split = messageText.substring(SET_DEFAULT_SETTING.length()).trim().split(" ", 2);
+                return dbService.setDefaultSetting(split[0], split[1]);
 
-            } else if (messageText.startsWith(GET_CHAT_SETTING)) {
-                String[] split = messageText.replace(GET_CHAT_SETTING, "").trim().split(" ", 2);
-                sendMessage(chatId, dbService.getChatSetting(split[0], split[1]));
+            } else if (lowerCaseMessage.startsWith(GET_CHAT_IDS)) {
+                return dbService.getChatIds();
 
-            } else if (messageText.startsWith(SET_CHAT_SETTING)) {
-                String[] split = messageText.replace(SET_CHAT_SETTING, "").trim().split(" ", 3);
-                sendMessage(chatId, dbService.setChatSetting(split[0], split[1], split[2]));
+            } else if (lowerCaseMessage.startsWith(GET_CHAT_SETTINGS)) {
+                String chatNumberString = messageText.substring(GET_CHAT_SETTINGS.length()).trim();
+                return dbService.getChatSettings(chatNumberString);
+
+            } else if (lowerCaseMessage.startsWith(GET_CHAT_SETTING)) {
+                String[] split = messageText.substring(GET_CHAT_SETTING.length()).trim().split(" ", 2);
+                return dbService.getChatSetting(split[0].trim(), split[1].trim());
+
+            } else if (lowerCaseMessage.startsWith(SET_CHAT_SETTING)) {
+                String[] split = messageText.substring(SET_CHAT_SETTING.length()).trim().split(" ", 3);
+                return dbService.setChatSetting(split[0].trim(), split[1].trim(), split[2].trim());
 
             }
         }
+        return null;
     }
 
     private Integer extractInt(String message) {
@@ -326,8 +338,15 @@ public class MyTelegramBot extends TelegramLongPollingBot {
     }
 
     private void sendMessage(long chatId, String text) {
+        sendMessage(chatId, text, false);
+    }
+
+    private void sendMessage(long chatId, String text, boolean isMarkdown) {
         SendMessage message = new SendMessage();
-        message.setChatId(String.valueOf(chatId));
+        if (isMarkdown) {
+            message.enableMarkdown(true);
+        }
+        message.setChatId(chatId);
         message.setText(text);
 
         try {

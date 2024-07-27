@@ -36,9 +36,9 @@ public class DefaultSettingsRepository {
         }
     }
 
-    public List<DefaultSettings> getAll() {
+    public List<DefaultSettings> getAllSorted() {
         try {
-            return jdbcTemplate.query("SELECT * FROM default_settings", new DefaultSettingsRowMapper());
+            return jdbcTemplate.query("SELECT * FROM default_settings ORDER BY name", new DefaultSettingsRowMapper());
         } catch (EmptyResultDataAccessException e) {
             log.warn("Calling getAll got empty result");
             return List.of();

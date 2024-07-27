@@ -6,9 +6,11 @@ import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
+import ru.novik.tgsqueezer.db.Settings;
 import ru.novik.tgsqueezer.db.model.ChatSettings;
 import ru.novik.tgsqueezer.db.model.DefaultSettings;
 
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -18,6 +20,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static ru.novik.tgsqueezer.db.Settings.*;
+
 @Repository
 @AllArgsConstructor
 @Slf4j
@@ -26,58 +30,58 @@ public class ChatSettingsRepository {
     private final JdbcTemplate jdbcTemplate;
     private final DefaultSettingsRepository defaultSettingsRepository;
 
-    public String getValue(String name, Long chatId) {
+    public String getValue(Settings name, Long chatId) {
         String value = null;
         try {
             String query = "SELECT cs.value FROM chat_settings cs JOIN default_settings ds on ds.id = cs.default_settings_id WHERE name = ? AND chat_id = ?";
-            value = jdbcTemplate.queryForObject(query, new Object[]{name, chatId}, new int[]{Types.VARCHAR, Types.BIGINT}, String.class);
+            value = jdbcTemplate.queryForObject(query, new Object[]{name.name(), chatId}, new int[]{Types.VARCHAR, Types.BIGINT}, String.class);
         } catch (EmptyResultDataAccessException e) {
             log.warn("Calling getValue with name: {} and chatId: {} got empty result", name, chatId);
         }
         if (value == null) {
             log.info("Getting default value with name: {}", name);
-            value = defaultSettingsRepository.getValue(name);
+            value = defaultSettingsRepository.getValue(name.name());
         }
         return value;
     }
 
     public int getMaxImageSize(Long chatId) {
         try {
-            return Integer.parseInt(getValue("max_image_size", chatId));
+            return Integer.parseInt(getValue(max_image_size, chatId));
         } catch (NumberFormatException e) {
             return 0;
         }
     }
 
     public String getSomebodySentImagePrompt(Long chatId) {
-        return getValue("somebody_sent_image_prompt", chatId);
+        return getValue(somebody_sent_image_prompt, chatId);
     }
 
     public Integer getMaxRequestsPerNotAllowedChat(Long chatId) {
         try {
-            return Integer.parseInt(getValue("max_requests_per_not_allowed_chat", chatId));
+            return Integer.parseInt(getValue(max_requests_per_not_allowed_chat, chatId));
         } catch (NumberFormatException e) {
             return 0;
         }
     }
 
     public String getInBotStartMessage(Long chatId) {
-        return getValue("in_bot_start_message", chatId);
+        return getValue(in_bot_start_message, chatId);
     }
 
     public Set<Long> getAllowedChatIds(Long chatId) {
-        return Arrays.stream(getValue("allowed_chat_ids", chatId).split(","))
+        return Arrays.stream(getValue(allowed_chat_ids, chatId).split(","))
                 .map(Long::parseLong)
                 .collect(Collectors.toSet());
     }
 
     public String getInChatStartAllowedMessage(Long chatId) {
-        return getValue("in_chat_start_allowed_message", chatId);
+        return getValue(in_chat_start_allowed_message, chatId);
     }
 
     public int getMinMessageStack(Long chatId) {
         try {
-            return Integer.parseInt(getValue("min_message_stack", chatId));
+            return Integer.parseInt(getValue(min_message_stack, chatId));
         } catch (NumberFormatException e) {
             return 10;
         }
@@ -85,55 +89,55 @@ public class ChatSettingsRepository {
 
     public int getMaxMessageStack(Long chatId) {
         try {
-            return Integer.parseInt(getValue("max_message_stack", chatId));
+            return Integer.parseInt(getValue(max_message_stack, chatId));
         } catch (NumberFormatException e) {
             return 100;
         }
     }
 
     public String getInChatStartNotAllowedMessage(Long chatId) {
-        return getValue("in_chat_start_not_allowed_message", chatId);
+        return getValue(in_chat_start_not_allowed_message, chatId);
     }
 
     public String getDescribeImagePrompt(Long chatId) {
-        return getValue("describe_image_prompt", chatId);
+        return getValue(describe_image_prompt, chatId);
     }
 
     public String getCommandToSqueeze(Long chatId) {
-        return getValue("command_to_squeeze", chatId);
+        return getValue(command_to_squeeze, chatId);
     }
 
     public String getVersionMessage(Long chatId) {
-        return getValue("version_message", chatId);
+        return getValue(version_message, chatId);
     }
 
     public String getAboutMessage(Long chatId) {
-        return getValue("about_message", chatId);
+        return getValue(about_message, chatId);
     }
 
     public String getNoMessageToDisplayMessage(Long chatId) {
-        return getValue("no_message_to_display_message", chatId);
+        return getValue(no_message_to_display_message, chatId);
     }
 
     public String getMinMessageStackNotReachedMessage(Long chatId) {
-        return getValue("min_message_stack_not_reached_message", chatId);
+        return getValue(min_message_stack_not_reached_message, chatId);
     }
 
     public String getChatgptApiKey(Long chatId) {
-        return getValue("chatgpt_api_key", chatId);
+        return getValue(chatgpt_api_key, chatId);
     }
 
     public String getNotAllowedMessage(Long chatId) {
-        return getValue("not_allowed_message", chatId);
+        return getValue(not_allowed_message, chatId);
     }
 
     public String getErrorMessage(Long chatId) {
-        return getValue("error_message", chatId);
+        return getValue(error_message, chatId);
     }
 
     public long getImageFrequencyPerUserInMins(Long chatId) {
         try {
-            return Long.parseLong(getValue("image_frequency_per_user_in_mins", chatId));
+            return Long.parseLong(getValue(image_frequency_per_user_in_mins, chatId));
         } catch (NumberFormatException e) {
             return 0;
         }
@@ -141,23 +145,23 @@ public class ChatSettingsRepository {
 
     public long getImageFrequencyPerChatInMins(Long chatId) {
         try {
-            return Long.parseLong(getValue("image_frequency_per_chat_in_mins", chatId));
+            return Long.parseLong(getValue(image_frequency_per_chat_in_mins, chatId));
         } catch (NumberFormatException e) {
             return 0;
         }
     }
 
     public String getChatgptModel(Long chatId) {
-        return getValue("chatgpt_model", chatId);
+        return getValue(chatgpt_model, chatId);
     }
 
     public String getChatgptPrompt(Long chatId) {
-        return getValue("chatgpt_prompt", chatId);
+        return getValue(chatgpt_prompt, chatId);
     }
 
-    public int getChatgptTemperature(Long chatId) {
+    public double getChatgptTemperature(Long chatId) {
         try {
-            return Integer.parseInt(getValue("chatgpt_temperature", chatId));
+            return Double.parseDouble(getValue(chatgpt_temperature, chatId));
         } catch (NumberFormatException e) {
             return 0;
         }
@@ -165,38 +169,38 @@ public class ChatSettingsRepository {
 
     public int getChatgptMaxTokens(Long chatId) {
         try {
-            return Integer.parseInt(getValue("chatgpt_max_tokens", chatId));
+            return Integer.parseInt(getValue(chatgpt_max_tokens, chatId));
         } catch (NumberFormatException e) {
             return 0;
         }
     }
 
-    public int getChatgptTopP(Long chatId) {
+    public double getChatgptTopP(Long chatId) {
         try {
-            return Integer.parseInt(getValue("chatgpt_top_p", chatId));
+            return Double.parseDouble(getValue(chatgpt_top_p, chatId));
         } catch (NumberFormatException e) {
             return 0;
         }
     }
 
-    public int getChatgptFrequencyPenalty(Long chatId) {
+    public double getChatgptFrequencyPenalty(Long chatId) {
         try {
-            return Integer.parseInt(getValue("chatgpt_frequency_penalty", chatId));
+            return Double.parseDouble(getValue(chatgpt_frequency_penalty, chatId));
         } catch (NumberFormatException e) {
             return 0;
         }
     }
 
-    public int getChatgptPresencePenalty(Long chatId) {
+    public double getChatgptPresencePenalty(Long chatId) {
         try {
-            return Integer.parseInt(getValue("chatgpt_presence_penalty", chatId));
+            return Double.parseDouble(getValue(chatgpt_presence_penalty, chatId));
         } catch (NumberFormatException e) {
             return 0;
         }
     }
 
     public String getDescribeImageImmediatelyPrompt(Long chatId) {
-        return getValue("describe_image_immediately_prompt", chatId);
+        return getValue(describe_image_immediately_prompt, chatId);
     }
 
     public List<ChatSettings> getAllByChatId(Long chatId) {
@@ -211,7 +215,8 @@ public class ChatSettingsRepository {
                            d.value    AS "d_value"
                     FROM chat_settings ch
                              LEFT JOIN default_settings d ON ch.default_settings_id = d.id
-                    WHERE chat_id = ?;
+                    WHERE chat_id = ?
+                    ORDER BY d.name;
                     """;
             return jdbcTemplate.query(query, new Object[]{chatId}, new int[]{Types.BIGINT}, new ChatSettingsRowMapper());
         } catch (EmptyResultDataAccessException e) {
@@ -256,6 +261,15 @@ public class ChatSettingsRepository {
                 .filter(chatSettings -> chatSettings.getDefaultSettings().getName().equals(name))
                 .findFirst()
                 .orElse(null);
+    }
+
+    public List<Long> getAllChatIds() {
+        try {
+            return jdbcTemplate.query("SELECT DISTINCT chat_id FROM chat_settings ORDER BY chat_id", (rs, rowNum) -> rs.getLong("chat_id"));
+        } catch (EmptyResultDataAccessException e) {
+            log.warn("Calling getAllChatIds got empty result");
+            return List.of();
+        }
     }
 
     private static class ChatSettingsRowMapper implements RowMapper<ChatSettings> {
