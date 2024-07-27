@@ -7,8 +7,12 @@ import ru.novik.tgsqueezer.db.model.DefaultSettings;
 import ru.novik.tgsqueezer.db.repository.ChatSettingsRepository;
 import ru.novik.tgsqueezer.db.repository.DefaultSettingsRepository;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Set;
+
+import static ru.novik.tgsqueezer.db.Settings.*;
 
 @Service
 @AllArgsConstructor
@@ -92,55 +96,85 @@ public class DbService {
         return sb.toString();
     }
 
-    public String getChatSetting(String chatNumberString, String chatSettingNum) {
-        if (chatNumberString == null || chatNumberString.isEmpty()) {
-            return "No chat number provided";
-        }
-        if (chatSettingNum == null || chatSettingNum.isEmpty()) {
-            return "No chat setting number provided";
+    public String getChatSetting(String chatNumString, String settingNum) {
+        try {
+            ChatSettings chatSettings = getChatSettings(chatNumString, settingNum);
+            return chatSettings.getDefaultSettings().getName() + ": " + chatSettings.getValue();
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
         }
 
-        int chatNumber = Integer.parseInt(chatNumberString);
-        List<Long> chatIds = chatSettingsRepository.getAllChatIds();
-        if (chatNumber < 0 || chatNumber > chatIds.size()) {
-            return "No chat with number: " + chatNumberString;
-        }
-        Long chatId = chatIds.get(chatNumber - 1);
-
-        int chatSettingNumber = Integer.parseInt(chatSettingNum);
-        List<ChatSettings> all = chatSettingsRepository.getAllByChatId(chatId);
-        if (chatSettingNumber < 0 || chatSettingNumber > all.size()) {
-            return "No chat setting with number: " + chatSettingNum;
-        }
-        ChatSettings chatSettings = all.get(chatSettingNumber - 1);
-
-        return chatSettings.getDefaultSettings().getName() + ": " + chatSettings.getValue();
     }
 
     public String setChatSetting(String chatNumString, String settingNum, String value) {
+        try {
+            ChatSettings chatSettings = getChatSettings(chatNumString, settingNum);
+            chatSettings.setValue(value);
+            validateValue(chatSettings);
+            chatSettingsRepository.save(chatSettings);
+            return "Chat setting with name: " + chatSettings.getDefaultSettings().getName() + " set to value: " + chatSettings.getValue();
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
+    }
+
+    private void validateValue(ChatSettings chatSettings) {
+        boolean needToValidate = chatSettings.getDefaultSettings().getName().equals(chatgpt_top_p.name()) ||
+                chatSettings.getDefaultSettings().getName().equals(chatgpt_temperature.name()) ||
+                chatSettings.getDefaultSettings().getName().equals(chatgpt_frequency_penalty.name()) ||
+                chatSettings.getDefaultSettings().getName().equals(chatgpt_presence_penalty.name());
+        if (!needToValidate) {
+            return;
+        }
+
+        BigDecimal bigDecimal = new BigDecimal(chatSettings.getValue());
+        bigDecimal = bigDecimal.setScale(1, RoundingMode.HALF_UP);
+        if (chatSettings.getDefaultSettings().getName().equals(chatgpt_top_p.name())) {
+            if (bigDecimal.abs().compareTo(new BigDecimal(2)) > 0) {
+                throw new IllegalArgumentException("top_p should be between -2.0 and 2.0");
+            }
+        }
+        boolean isValid = bigDecimal.compareTo(BigDecimal.ZERO) >= 0 && bigDecimal.compareTo(BigDecimal.ONE) <= 0;
+        if (chatSettings.getDefaultSettings().getName().equals(chatgpt_temperature.name())) {
+            if (!isValid) {
+                throw new IllegalArgumentException("Temperature should be between 0 and 1.0");
+            }
+        }
+        if (chatSettings.getDefaultSettings().getName().equals(chatgpt_frequency_penalty.name())) {
+            if (!isValid) {
+                throw new IllegalArgumentException("Frequency penalty should be between 0 and 1.0");
+            }
+            chatSettings.setValue(bigDecimal.toString());
+        }
+        if (chatSettings.getDefaultSettings().getName().equals(chatgpt_presence_penalty.name())) {
+            if (!isValid) {
+                throw new IllegalArgumentException("Presence penalty should be between 0 and 1.0");
+            }
+        }
+        chatSettings.setValue(bigDecimal.toString());
+    }
+
+    private ChatSettings getChatSettings(String chatNumString, String settingNum) {
         if (chatNumString == null || chatNumString.isEmpty()) {
-            return "No chat number provided";
+            throw new IllegalArgumentException("No chat number provided");
         }
         if (settingNum == null || settingNum.isEmpty()) {
-            return "No chat setting number provided";
+            throw new IllegalArgumentException("No chat setting number provided");
         }
+
         int chatNumber = Integer.parseInt(chatNumString);
         List<Long> chatIds = chatSettingsRepository.getAllChatIds();
         if (chatNumber < 0 || chatNumber > chatIds.size()) {
-            return "No chat with number: " + chatNumString;
+            throw new IllegalArgumentException("No chat with number: " + chatNumString);
         }
         Long chatId = chatIds.get(chatNumber - 1);
 
-        int settingNumber = Integer.parseInt(settingNum);
+        int chatSettingNumber = Integer.parseInt(settingNum);
         List<ChatSettings> all = chatSettingsRepository.getAllByChatId(chatId);
-        if (settingNumber < 0 || settingNumber > all.size()) {
-            return "No chat setting with number: " + settingNum;
+        if (chatSettingNumber < 0 || chatSettingNumber > all.size()) {
+            throw new IllegalArgumentException("No chat setting with number: " + settingNum);
         }
-        ChatSettings chatSettings = all.get(settingNumber - 1);
-        chatSettings.setValue(value);
-
-        chatSettingsRepository.save(chatSettings);
-        return "Chat setting with name: " + chatSettings.getDefaultSettings().getName() + " for chatId: " + chatId + " set to value: " + value;
+        return all.get(chatSettingNumber - 1);
     }
 
     public String getChatIds() {

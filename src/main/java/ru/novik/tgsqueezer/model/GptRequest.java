@@ -16,14 +16,15 @@ public class GptRequest implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
     private String model;
-    private int temperature;
+    @SerializedName("temperature")
+    private double temperature;
     @SerializedName("max_tokens")
     private int maxTokens;
     @SerializedName("top_p")
-    private int topP;
+    private double topP;
     @SerializedName("frequency_penalty")
-    private int frequencyPenalty;
+    private double frequencyPenalty;
     @SerializedName("presence_penalty")
-    private int presencePenalty;
+    private double presencePenalty;
     private List<GptMessage> messages;
 }
